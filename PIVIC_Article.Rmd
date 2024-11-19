@@ -1,0 +1,281 @@
+---
+title: "Apoptosis_ROS_Article"
+author: "Ricardo Oliveira"
+date: "2024-11-13"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Script for Somatic Mutation Analysis of Apoptosis and Reactive Oxygen Species Defense Genes
+
+
+#### This script presents the methodology and results of my analysis of somatic mutations in genes involved in apoptosis and defense against reactive oxygen species (ROS). The following sections contain detailed steps and code used to identify, filter, and analyze mutations in these key gene sets, providing insights into their potential roles and associations with cancer progression and therapeutic responses.
+
+1. **Filtering of Mutations by Cancer Type**  
+   We begin by filtering somatic mutations across four types of cancer: breast, prostate, esophagogastric, and colorectal. The datasets for these cancers were sourced from the CBioPortal database. Notably, these databases were selected randomly and represent collections that have not been extensively detailed in the literature.
+
+2. **Initial Data Handling in Microsoft Excel**  
+   After downloading the datasets, preliminary filtering was done in Microsoft Excel:
+   - Removed duplicate mutations identified within samples from the same individual.
+   - Ensured each sample reflected unique mutation data for accurate downstream analyses.
+
+3. **Data Import into RStudio Environment**  
+   Following Excel processing, the filtered data were imported into the RStudio environment to prepare for further analysis and visualization.
+
+4. **Common Gene Analysis in R**  
+   In R, the analysis focuses on identifying common target genes with somatic mutations across the cancer types. This step checks for overlapping genes among cancers rather than investigating identical mutations. The objective is to determine which mutated genes are consistently present in multiple cancer types, highlighting potential cross-cancer gene targets for further study. 
+
+--- 
+
+This structure sets up a clear pathway from data acquisition to the analysis focus in R.
+
+### Necessary Packages
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(GOplot)
+library(RColorBrewer)
+library(dplyr)
+library(UpSetR)
+library(rJava)
+library(UpSetR)
+library(grid)
+library(ggforce)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+
+```
+
+### Here, an Upset plot visualization is being created to examine the common genes shared across different cancer types. Following this, an Over-Representation Analysis (ORA) will be conducted to assess the functional enrichment of these genes. This enrichment analysis aims to uncover the biological functions and pathways in which these shared genes are involved, providing insights into their roles in cancer across multiple tissue types.
+
+#### It is important to note that before this, the file with the mutations in Apoptosis and ROS defense genes was imported from the code:
+
+#### ros_apoptose_tudo <- read.delim(“~/tabela completa (ROS e APOP) - TABELA COMPLETA.tsv”, header=TRUE)
+
+```{r}
+# Inserting the general table
+ros_apoptose_tudom <- read.delim("C:/Users/ricar/Downloads/tabela completa (ROS e APOP) - TABELA COMPLETA.tsv", header=FALSE)
+
+# Taking the gene symbols and cancer type columns into a new data.frame
+ros_apoptose_tudo <- NULL
+
+ros_apoptose_tudo$Hugo_Symbol <- ros_apoptose_tudom$V1
+
+ros_apoptose_tudo$Tipo <- ros_apoptose_tudom$V15
+
+ros_apoptose_tudo$Grupo <- ros_apoptose_tudom$V16
+
+ros_apoptose_tudo <- as.data.frame(ros_apoptose_tudo)
+
+
+# Creating gene lists based on cancer type from the column "Tipo" in 'ros_apoptose_tudo'
+# "Hugo_Symbol" contains gene names; "Tipo" specifies cancer type
+mama_mateus_ros_apo <- ros_apoptose_tudo$Hugo_Symbol[ros_apoptose_tudo$Tipo == "Mama"]
+prostata_mateus_ros_apo <- ros_apoptose_tudo$Hugo_Symbol[ros_apoptose_tudo$Tipo == "Prostata"]
+esofagog_mateus_ros_apo <- ros_apoptose_tudo$Hugo_Symbol[ros_apoptose_tudo$Tipo == "Esofagogastrico"]
+colorretal_mateus_ros_apo <- ros_apoptose_tudo$Hugo_Symbol[ros_apoptose_tudo$Tipo == "Colorretal"]
+
+
+# Creating a combined list with gene names for each cancer type
+lista_apop_ros <- list("Breast" = mama_mateus_ros_apo, 
+                       "Prostate" = prostata_mateus_ros_apo,
+                       "Esophagogastric" = esofagog_mateus_ros_apo,
+                       "Colorectal" = colorretal_mateus_ros_apo)
+
+# Generating an Upset plot to visualize gene overlaps across cancer types
+upset(fromList(lista_apop_ros), order.by = "freq")
+
+# Creating gene lists to find unique or common genes across different cancer types
+list_pivic_ros_apo_mama <- setdiff(mama_mateus_ros_apo, c(prostata_mateus_ros_apo, esofagog_mateus_ros_apo, colorretal_mateus_ros_apo))
+list_pivic_ros_apo_prostata <- setdiff(prostata_mateus_ros_apo, c(mama_mateus_ros_apo, esofagog_mateus_ros_apo, colorretal_mateus_ros_apo))
+list_pivic_ros_apo_prostata_mama <- Reduce(intersect, list(prostata_mateus_ros_apo, mama_mateus_ros_apo))
+
+# Finding genes common to all four cancer types
+list_genes_part_final <- Reduce(intersect, list(prostata_mateus_ros_apo, mama_mateus_ros_apo, colorretal_mateus_ros_apo, esofagog_mateus_ros_apo))
+list_genes_CM_CP_2_apop_ros <- setdiff(mama_mateus_ros_apo, prostata_mateus_ros_apo)
+
+# Performing enrichment analysis (ORA) on common genes
+enriqueciment_genes_pivic_tudo <- enrichGO(
+  gene = list_genes_part_final,
+  OrgDb = "org.Hs.eg.db",
+  ont = "BP",
+  pAdjustMethod = "BH", 
+  keyType = 'SYMBOL')
+
+# Plotting enrichment results and saving as PNG
+barplot(enriqueciment_genes_pivic_tudo)
+ggsave("my_plot.png", width = 15, height = 10, dpi = 600)
+
+# Visualizing top enriched terms in a custom barplot
+enriqueciment_genes_pivic_tudo <- enriqueciment_genes_pivic_tudo[order(enriqueciment_genes_pivic_tudo$p.adjust), ]
+list_genes_todos <- head(enriqueciment_genes_pivic_tudo, 8)
+
+list_genes_todos
+
+p1 <- ggplot(list_genes_todos, aes(x = reorder(Description, p.adjust), y = -log10(p.adjust))) +
+  geom_bar(stat = "identity", aes(fill = -log10(p.adjust)), color = "black") +
+  scale_fill_gradient(low = "lightpink", high = "darkblue") +
+  coord_flip() +
+  labs(x = "", y = "-log10(p.adjust)",
+       title = "Enrichment of Biological Processes from common genes found in the four types of cancer",
+       caption = "Fonte: Santana et al., 2023") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 12, colour = "black"),
+        plot.title = element_text(size = 12, hjust = 2, colour = "black"),
+        plot.caption = element_text(size = 10, hjust = 0),
+        axis.text.x = element_text(angle = 45, hjust = 0, colour = "black"))
+
+# Display plot
+print(p1)
+
+# Enrichment analysis for genes common in Breast and Prostate cancers
+list_genes_CM_CP_ros_apop <- Reduce(intersect, list(mama_mateus_ros_apo, prostata_mateus_ros_apo))
+
+list_genes_CM_CP_ros_apop
+
+enriqueciment_genes_CM_CP <- enrichGO(
+  gene = list_genes_CM_CP_ros_apop,
+  OrgDb = "org.Hs.eg.db",
+  ont = "BP",
+  pAdjustMethod = "BH",
+  keyType = 'SYMBOL')
+
+# Display enrichment barplot
+barplot(enriqueciment_genes_CM_CP)
+
+# Order results by adjusted p-value and select the top 8 enriched terms
+enriqueciment_genes_CM_CP <- enriqueciment_genes_CM_CP[order(enriqueciment_genes_CM_CP$p.adjust), ]
+list_genes_CM_CP <- head(enriqueciment_genes_CM_CP, 8)
+
+# Check top terms
+print(list_genes_CM_CP)
+
+# Plot top enriched terms in a custom bar plot
+p2 <- ggplot(list_genes_CM_CP, aes(x = reorder(Description, p.adjust), y = -log10(p.adjust))) +
+  geom_bar(stat = "identity", aes(fill = -log10(p.adjust)), color = "black") +
+  scale_fill_gradient(low = "lightpink", high = "darkblue") +
+  coord_flip() +
+  labs(
+    x = "", y = "-log10(p.adjust)",
+    title = "Enrichment of Biological Processes from common genes in Breast and Prostate cancers",
+    caption = "Fonte: Santana et al., 2023"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 12, colour = "black"),
+    plot.title = element_text(size = 12, hjust = 0.5, colour = "black"),
+    plot.caption = element_text(size = 10, hjust = 0),
+    axis.text.x = element_text(angle = 45, hjust = 1, colour = "black")
+  )
+
+# Display plot
+print(p2)
+
+```
+
+
+
+
+
+
+
+### In this section, a filtering process was applied to isolate specific genetic variants for submission to EnsemblVEP. The purpose of this submission is to obtain pathogenicity predictions for these variants, as well as to identify any prior literature documentation on these mutations. This approach helps determine the potential impact of the variants in terms of disease association and clinical relevance by cross-referencing them with known databases and research publications
+
+
+```{r}
+### Loading Data Frames ###
+
+# Breast cancer datasets
+brca_1 <- read.delim("C:/Users/ricar/Downloads/teste_teste/breast_ink4_msk_2021/brca_mbcproject_2022/data_mutations.txt")
+brca_2 <- read.delim("C:/Users/ricar/Downloads/teste_teste/breast_ink4_msk_2021/breast_ink4_msk_2021/data_mutations.txt", comment.char="#")
+brca_3 <- read.delim("C:/Users/ricar/Downloads/teste_teste/breast_ink4_msk_2021/brca_igr_2015/data_mutations.txt")
+
+# Colorectal cancer datasets
+crc_1 <- read.delim("C:/Users/ricar/Downloads/crc_msk_2017/crc_msk_2017/data_mutations.txt")
+crc_2 <- read.delim("C:/Users/ricar/Downloads/teste_teste/breast_ink4_msk_2021/crc_nigerian_2020/data_mutations.txt", comment.char="#")
+
+# Prostate cancer datasets
+prostate_1 <- read.delim("C:/Users/ricar/Downloads/teste_teste/breast_ink4_msk_2021/prad_su2c_2019/data_mutations.txt")
+prostate_2 <- read.delim("C:/Users/ricar/Downloads/teste_teste/breast_ink4_msk_2021/prad_mcspc_mskcc_2020/data_mutations.txt", comment.char="#")
+prostate_3 <- read.delim("C:/Users/ricar/Downloads/teste_teste/breast_ink4_msk_2021/mpcproject_broad_2021/data_mutations.txt")
+prosstate_4 <- read.delim("C:/Users/ricar/Downloads/teste_teste/breast_ink4_msk_2021/prad_mich/data_mutations.txt", comment.char="#")
+
+# Esophagogastric cancer dataset
+esg_1 <- read.delim("C:/Users/ricar/Downloads/teste_teste/breast_ink4_msk_2021/egc_msk_2017/data_mutations.txt")
+
+#### Filtering Data ####
+
+# Load a dataset of gene functions for filtering
+human_gene_function <- read.delim2("~/Mestrado_Rstudio_org/human_gene_function.txt")
+
+# Filter rows with "Apoptosis" and "ROS Defense" processes
+genes_pivic <- subset(human_gene_function, mito_process %in% c("Apoptosis", "ROS Defense"))
+
+# Create a vector with gene symbols
+genes_pivic <- genes_pivic$HGNC_symbol
+
+# Filter each cancer dataset to include only the specified genes
+brca_1 <- subset(brca_1, Hugo_Symbol %in% genes_pivic)
+brca_2 <- subset(brca_2, Hugo_Symbol %in% genes_pivic)
+brca_3 <- subset(brca_3, Hugo_Symbol %in% genes_pivic)
+crc_1 <- subset(crc_1, Hugo_Symbol %in% genes_pivic)
+crc_2 <- subset(crc_2, Hugo_Symbol %in% genes_pivic)
+prostate_1 <- subset(prostate_1, Hugo_Symbol %in% genes_pivic)
+prostate_2 <- subset(prostate_2, Hugo_Symbol %in% genes_pivic)
+prostate_3 <- subset(prostate_3, Hugo_Symbol %in% genes_pivic)
+prosstate_4 <- subset(prosstate_4, Hugo_Symbol %in% genes_pivic)
+esg_1 <- subset(esg_1, Hugo_Symbol %in% genes_pivic)
+
+# Combine the tables for analysis
+library(tidyverse)
+
+# Selecting the HGVSc column for variant information
+brca_1_a <- brca_1$HGVSc
+brca_2_a <- brca_2$HGVSc
+brca_3_a <- brca_3$HGVSc
+crc_1_a <- crc_1$HGVSc
+crc_2_a <- crc_2$HGVSc
+prostate_1_a <- prostate_1$HGVSc
+prostate_2_a <- prostate_2$HGVSc
+prostate_3_a <- prostate_3$HGVSc
+prosstate_4_a <- prosstate_4$HGVSc
+esg_1_a <- esg_1$HGVSc
+
+# Combine all variant information into a single data frame
+tabela_variant <- c(brca_1_a, brca_2_a, brca_3_a, crc_1_a, crc_2_a, prostate_1_a, prostate_2_a, prostate_3_a, prosstate_4_a, esg_1_a)
+jss <- data.frame(Valores = tabela_variant)
+
+# Export the table of variants to a text file
+write.table(jss, "variants_pivic.txt", quote = F, row.names = F)
+
+# Find unique values of variants
+unique(jss$Valores)
+
+# Selecting the Transcript_ID column for further analysis
+brca_1_a <- brca_1$Transcript_ID
+brca_2_a <- brca_2$Transcript_ID
+brca_3_a <- brca_3$Transcript_ID
+crc_1_a <- crc_1$Transcript_ID
+crc_2_a <- crc_2$Transcript_ID
+prostate_1_a <- prostate_1$Transcript_ID
+prostate_2_a <- prostate_2$Transcript_ID
+prostate_3_a <- prostate_3$Transcript_ID
+prosstate_4_a <- prosstate_4$Transcript_ID
+esg_1_a <- esg_1$Transcript_ID
+
+# Combine Transcript_IDs for further filtering
+tabela_variant <- c(brca_1_a, brca_2_a, brca_3_a, crc_1_a, crc_2_a, prostate_1_a, prostate_2_a, prostate_3_a, prosstate_4_a, esg_1_a)
+
+# Filter data using a variable in the environment (not yet defined in script)
+variantes <- subset(LAJxPp8nhMiBN6bV, Feature %in% tabela_variant)
+
+# Clean up the 'Feature' column by removing any text after a period
+LAJxPp8nhMiBN6bV$Feature <- gsub("\\..*$", "", LAJxPp8nhMiBN6bV$Feature)
+
+# Selecting specific columns to create a new data frame
+novo_dados <- variantes[, c("X.Uploaded_variation", "SYMBOL", "PUBMED")]
+
+# Display the new data frame
+print(novo_dados)
+```
